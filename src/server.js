@@ -7,7 +7,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:19006', 'https://salon-backend-kmvouyua8-sheikhsahil720-gmailcoms-projects.vercel.app'],
+  origin: true,
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
