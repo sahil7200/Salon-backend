@@ -3,7 +3,7 @@ const Salon = require('../models/Salon');
 /**
  * Subscription gating & operational status middleware (§8, §10).
  * Validates subscription status AND end date using `>=` (§10 edge case).
- * Blocks salon-scoped operations if expired, suspended, or closed.
+ * Blocks salon-scoped operations if expired, suspended, closed, or none.
  * Super Admin is exempt.
  */
 const subscriptionGate = async (req, res, next) => {
@@ -41,11 +41,11 @@ const subscriptionGate = async (req, res, next) => {
       });
     }
 
-    // Check subscription status
-    if (salon.subscriptionStatus === 'EXPIRED' || salon.subscriptionStatus === 'SUSPENDED') {
+    // Check subscription status (EXPIRED, SUSPENDED, NONE, CANCELLED all block operation)
+    if (['EXPIRED', 'SUSPENDED', 'NONE', 'CANCELLED'].includes(salon.subscriptionStatus)) {
       return res.status(403).json({
         error: 'SUBSCRIPTION_EXPIRED',
-        message: 'Your subscription has expired. Please contact the administrator to renew your plan.',
+        message: 'Your subscription has expired or is inactive. Please contact the administrator to activate or renew your plan.',
       });
     }
 
