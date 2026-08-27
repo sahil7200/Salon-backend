@@ -30,7 +30,7 @@ const createStaff = async (req, res, next) => {
     if (salon && salon.currentPlan) {
       const currentStaffCount = await Staff.countDocuments({
         salonId: req.salonId,
-        status: 'ACTIVE',
+        $or: [{ status: 'ACTIVE' }, { isActive: true }],
       });
       if (currentStaffCount >= salon.currentPlan.maxStaff) {
         return res.status(403).json({
@@ -44,8 +44,9 @@ const createStaff = async (req, res, next) => {
       salonId: req.salonId,
       name: name.trim(),
       phone: phone.trim(),
-      services: services || [],
+      services: services || ['Haircut', 'Facial', 'Hair Color'],
       status: 'ACTIVE',
+      isActive: true,
     });
 
     logAudit(req, 'STAFF_CREATED', 'Staff', staff._id, { name: staff.name, phone: staff.phone });
@@ -62,11 +63,12 @@ const getStaff = async (req, res, next) => {
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 50));
 
+    // Support both status field and legacy isActive/missing status field
     const filter = { salonId: req.salonId };
-    if (status) {
-      filter.status = status;
+    if (status === 'INACTIVE') {
+      filter.$or = [{ status: 'INACTIVE' }, { isActive: false }];
     } else {
-      filter.status = 'ACTIVE';
+      filter.$or = [{ status: 'ACTIVE' }, { isActive: true }, { status: { $exists: false } }];
     }
 
     const total = await Staff.countDocuments(filter);
@@ -115,6 +117,7 @@ const deactivateStaff = async (req, res, next) => {
     }
 
     staff.status = 'INACTIVE';
+    staff.isActive = false;
     await staff.save();
 
     logAudit(req, 'STAFF_DEACTIVATED', 'Staff', staff._id, { name: staff.name });
