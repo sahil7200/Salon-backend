@@ -29,12 +29,10 @@ const salonSchema = new mongoose.Schema({
   latitude: {
     type: Number,
     required: true,
-    default: 19.0760,
   },
   longitude: {
     type: Number,
     required: true,
-    default: 72.8777,
   },
   allowedRadius: {
     type: Number,
@@ -64,14 +62,9 @@ const salonSchema = new mongoose.Schema({
   subscriptionEndDate: Date,
   subscriptionStatus: {
     type: String,
-    enum: ['TRIAL', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'SUSPENDED', 'CANCELLED', 'NONE', 'PENDING_APPROVAL'],
+    enum: ['TRIAL', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'SUSPENDED', 'CANCELLED', 'NONE'],
     default: 'NONE',
   },
-  pendingPlan: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Plan',
-  },
-  pendingPlanRequestedAt: Date,
   // Legacy compat
   isActive: {
     type: Boolean,
