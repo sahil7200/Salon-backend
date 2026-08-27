@@ -13,11 +13,13 @@ const subscriptionGate = require('../middleware/subscriptionGate');
 
 router.use(auth, subscriptionGate);
 
-// All roles (Owner, Receptionist) can view/create appointments
+// View routes (All salon roles: Owner, Receptionist)
 router.get('/', authorize('SALON_OWNER', 'RECEPTIONIST'), getAppointments);
 router.get('/today-count', authorize('SALON_OWNER', 'RECEPTIONIST'), getTodayCount);
 router.get('/:id', authorize('SALON_OWNER', 'RECEPTIONIST'), getAppointmentById);
-router.post('/', authorize('SALON_OWNER', 'RECEPTIONIST'), createAppointment);
-router.patch('/:id/status', authorize('SALON_OWNER', 'RECEPTIONIST'), updateAppointmentStatus);
+
+// Write routes (Salon Owner ONLY - Receptionist has view-only access)
+router.post('/', authorize('SALON_OWNER'), createAppointment);
+router.patch('/:id/status', authorize('SALON_OWNER'), updateAppointmentStatus);
 
 module.exports = router;
