@@ -1,27 +1,39 @@
 const Salon = require('../models/Salon');
 const Plan = require('../models/Plan');
+const User = require('../User');
 const SubscriptionHistory = require('../models/SubscriptionHistory');
-const User = require('../models/User');
-const { sanitizeFields } = require('../utils/validators');
-const { logAudit } = require('../utils/audit');
+const { sanitizeFields } = require('../utils/sanitize');
+const { logAudit } = require('../utils/auditLogger');
 
+/**
+ * Get all salons (Super Admin sees all, Salon Owner/Receptionist sees their own salon).
+ */
 const getSalons = async (req, res, next) => {
   try {
-    const { status, page = 1, limit = 50 } = req.query;
+    const { status, subscriptionStatus, search, page = 1, limit = 50 } = req.query;
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 50));
 
-    let query = {};
-    if (req.user.role === 'SUPER_ADMIN') {
-      if (status) query.status = status;
+    const filter = {};
+
+    if (req.user.role !== 'SUPER_ADMIN') {
+      filter._id = req.salonId;
     } else {
-      query = { _id: req.salonId };
+      if (status) filter.status = status;
+      if (subscriptionStatus) filter.subscriptionStatus = subscriptionStatus;
+      if (search) {
+        filter.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { address: { $regex: search, $options: 'i' } },
+        ];
+      }
     }
 
-    const total = await Salon.countDocuments(query);
-    const salons = await Salon.find(query)
-      .populate('ownerId', 'name email status')
-      .populate('currentPlan', 'name price durationInDays maxStaff maxAppointments')
+    const total = await Salon.countDocuments(filter);
+    const salons = await Salon.find(filter)
+      .populate('ownerId', 'name email phone')
+      .populate('currentPlan')
+      .populate('pendingPlan')
       .sort({ createdAt: -1 })
       .skip((pageNum - 1) * limitNum)
       .limit(limitNum);
@@ -35,19 +47,22 @@ const getSalons = async (req, res, next) => {
   }
 };
 
+/**
+ * Get salon by ID.
+ */
 const getSalonById = async (req, res, next) => {
   try {
+    if (req.user.role !== 'SUPER_ADMIN' && req.params.id !== req.salonId.toString()) {
+      return res.status(403).json({ error: 'FORBIDDEN_ACCESS', message: 'Access to this salon is forbidden' });
+    }
+
     const salon = await Salon.findById(req.params.id)
-      .populate('ownerId', 'name email status')
-      .populate('currentPlan', 'name price durationInDays maxStaff maxAppointments');
+      .populate('ownerId', 'name email phone')
+      .populate('currentPlan')
+      .populate('pendingPlan');
 
     if (!salon) {
       return res.status(404).json({ error: 'RESOURCE_NOT_FOUND', message: 'Salon not found' });
-    }
-
-    // Tenant isolation: non-admin users can only view their own salon (§3, §7)
-    if (req.user.role !== 'SUPER_ADMIN' && salon._id.toString() !== req.salonId?.toString()) {
-      return res.status(404).json({ error: 'RESOURCE_NOT_FOUND', message: 'Salon not found' }); // Hide existence (§3)
     }
 
     res.json(salon);
@@ -57,41 +72,43 @@ const getSalonById = async (req, res, next) => {
 };
 
 /**
- * Super Admin creates salon directly (§6, §55).
+ * Create a new salon + owner user (Super Admin only, §11, §32).
  */
 const createSalon = async (req, res, next) => {
   try {
-    const { name, ownerName, ownerEmail, ownerPassword, address, phone, planId, latitude, longitude, allowedRadius } = sanitizeFields(req.body, [
-      'name', 'ownerName', 'ownerEmail', 'ownerPassword', 'address', 'phone', 'planId', 'latitude', 'longitude', 'allowedRadius',
+    const { name, ownerName, ownerEmail, ownerPassword, address, phone, planId } = sanitizeFields(req.body, [
+      'name', 'ownerName', 'ownerEmail', 'ownerPassword', 'address', 'phone', 'planId'
     ]);
 
     if (!name || !ownerEmail || !ownerPassword) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'Salon name, ownerEmail, and ownerPassword are required',
+        message: 'name, ownerEmail, and ownerPassword are required',
       });
     }
 
-    const normalizedEmail = ownerEmail.trim().toLowerCase();
-
-    let owner = await User.findOne({ email: normalizedEmail });
-    if (!owner) {
-      owner = await User.create({
-        name: ownerName ? ownerName.trim() : `${name.trim()} Owner`,
-        email: normalizedEmail,
-        password: ownerPassword,
-        role: 'SALON_OWNER',
-        status: 'ACTIVE',
-      });
+    const normalizedEmail = ownerEmail.toLowerCase();
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(409).json({ error: 'DUPLICATE_RESOURCE', message: 'User with this email already exists' });
     }
 
     let selectedPlan = null;
     if (planId) {
       selectedPlan = await Plan.findById(planId);
+      if (!selectedPlan || !selectedPlan.isActive) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Selected plan is invalid or inactive' });
+      }
+    } else {
+      selectedPlan = await Plan.findOne({ isDefaultTrial: true, isActive: true });
     }
-    if (!selectedPlan) {
-      selectedPlan = await Plan.findOne({ name: 'Basic' }) || await Plan.findOne({ isActive: true });
-    }
+
+    const owner = await User.create({
+      name: ownerName || name + ' Owner',
+      email: normalizedEmail,
+      password: ownerPassword,
+      role: 'SALON_OWNER',
+    });
 
     const now = new Date();
     const durationDays = selectedPlan ? selectedPlan.durationInDays : 30;
@@ -99,19 +116,14 @@ const createSalon = async (req, res, next) => {
     endDate.setDate(endDate.getDate() + durationDays);
 
     const salon = await Salon.create({
-      name: name.trim(),
+      name,
       ownerId: owner._id,
-      address: address ? address.trim() : '123 Main Street',
-      phone: phone ? phone.trim() : '+91-9876543210',
-      latitude: latitude != null ? Number(latitude) : 19.0760,
-      longitude: longitude != null ? Number(longitude) : 72.8777,
-      allowedRadius: allowedRadius != null ? Number(allowedRadius) : 100,
-      openingTime: '09:00',
-      closingTime: '20:00',
-      currentPlan: selectedPlan ? selectedPlan._id : null,
+      address,
+      phone,
+      currentPlan: selectedPlan ? selectedPlan._id : undefined,
       subscriptionStartDate: now,
       subscriptionEndDate: endDate,
-      subscriptionStatus: 'ACTIVE',
+      subscriptionStatus: selectedPlan?.isDefaultTrial ? 'TRIAL' : 'ACTIVE',
       status: 'ACTIVE',
     });
 
@@ -139,8 +151,111 @@ const createSalon = async (req, res, next) => {
 };
 
 /**
- * Assign, renew, or upgrade plan (Super Admin only, §12, §58, §59).
- * Renewal stacks: newEndDate = existingEndDate + duration so customers don't lose time (§59).
+ * Request subscription plan by Salon Owner (§12).
+ */
+const requestSubscription = async (req, res, next) => {
+  try {
+    const { planId } = sanitizeFields(req.body, ['planId']);
+    if (!planId) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'planId is required' });
+    }
+
+    const plan = await Plan.findById(planId);
+    if (!plan || !plan.isActive) {
+      return res.status(404).json({ error: 'RESOURCE_NOT_FOUND', message: 'Subscription plan not found' });
+    }
+
+    const salon = await Salon.findById(req.salonId);
+    if (!salon) {
+      return res.status(404).json({ error: 'RESOURCE_NOT_FOUND', message: 'Salon not found' });
+    }
+
+    salon.pendingPlan = plan._id;
+    salon.pendingPlanRequestedAt = new Date();
+    salon.subscriptionStatus = 'PENDING_APPROVAL';
+    await salon.save();
+
+    await salon.populate('pendingPlan');
+    await salon.populate('currentPlan');
+
+    logAudit(req, 'PLAN_REQUESTED', 'Salon', salon._id, { planId: plan._id, planName: plan.name });
+
+    res.json({
+      message: `Subscription request for '${plan.name}' submitted successfully. Pending Super Admin approval.`,
+      salon,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Approve or Reject Subscription Request (Super Admin only).
+ */
+const approveSubscriptionRequest = async (req, res, next) => {
+  try {
+    const { salonId, approve } = req.body;
+    if (!salonId) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'salonId is required' });
+    }
+
+    const salon = await Salon.findById(salonId).populate('pendingPlan');
+    if (!salon) {
+      return res.status(404).json({ error: 'RESOURCE_NOT_FOUND', message: 'Salon not found' });
+    }
+
+    if (!salon.pendingPlan) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Salon has no pending plan request' });
+    }
+
+    const plan = salon.pendingPlan;
+
+    if (approve) {
+      const previousPlanId = salon.currentPlan;
+      const now = new Date();
+      const startDate = now;
+      const endDate = new Date(now);
+      endDate.setDate(endDate.getDate() + plan.durationInDays);
+
+      salon.currentPlan = plan._id;
+      salon.subscriptionStartDate = startDate;
+      salon.subscriptionEndDate = endDate;
+      salon.subscriptionStatus = 'ACTIVE';
+      salon.pendingPlan = undefined;
+      salon.pendingPlanRequestedAt = undefined;
+      await salon.save();
+
+      await SubscriptionHistory.create({
+        salonId: salon._id,
+        planId: plan._id,
+        previousPlanId,
+        startDate,
+        endDate,
+        price: plan.price,
+        action: 'UPGRADE',
+        performedBy: req.user._id,
+      });
+
+      logAudit(req, 'PLAN_REQUEST_APPROVED', 'Salon', salon._id, { planId: plan._id });
+
+      res.json({ message: `Plan '${plan.name}' approved and activated for ${salon.name}`, salon });
+    } else {
+      salon.pendingPlan = undefined;
+      salon.pendingPlanRequestedAt = undefined;
+      salon.subscriptionStatus = salon.subscriptionEndDate && new Date(salon.subscriptionEndDate) > new Date() ? 'ACTIVE' : 'EXPIRED';
+      await salon.save();
+
+      logAudit(req, 'PLAN_REQUEST_REJECTED', 'Salon', salon._id, { planId: plan._id });
+
+      res.json({ message: `Subscription request rejected for ${salon.name}`, salon });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Assign, renew, or upgrade plan (Super Admin only).
  */
 const assignPlan = async (req, res, next) => {
   try {
@@ -180,7 +295,6 @@ const assignPlan = async (req, res, next) => {
       endDate = new Date(now);
       endDate.setDate(endDate.getDate() + plan.durationInDays);
     } else if (action === 'RENEW') {
-      // Renewal stacking (§59): if active, extend existingEndDate by duration; if expired, start from now
       const currentEnd = new Date(salon.subscriptionEndDate);
       startDate = currentEnd > now ? currentEnd : now;
       endDate = new Date(startDate);
@@ -195,6 +309,8 @@ const assignPlan = async (req, res, next) => {
     salon.subscriptionStartDate = startDate;
     salon.subscriptionEndDate = endDate;
     salon.subscriptionStatus = 'ACTIVE';
+    salon.pendingPlan = undefined;
+    salon.pendingPlanRequestedAt = undefined;
     await salon.save();
 
     const history = await SubscriptionHistory.create({
@@ -227,7 +343,7 @@ const assignPlan = async (req, res, next) => {
 };
 
 /**
- * Suspend/Activate salon (Super Admin only, §8).
+ * Suspend/Activate salon (Super Admin only).
  */
 const updateSalonStatus = async (req, res, next) => {
   try {
@@ -294,6 +410,8 @@ module.exports = {
   getSalons,
   getSalonById,
   createSalon,
+  requestSubscription,
+  approveSubscriptionRequest,
   assignPlan,
   updateSalonStatus,
   getSubscriptionHistory,

@@ -4,6 +4,8 @@ const {
   getSalons,
   getSalonById,
   createSalon,
+  requestSubscription,
+  approveSubscriptionRequest,
   assignPlan,
   updateSalonStatus,
   getSubscriptionHistory,
@@ -18,6 +20,12 @@ router.get('/', getSalons);
 
 // Create salon - Super Admin only
 router.post('/', authorize('SUPER_ADMIN'), createSalon);
+
+// Request subscription plan by Salon Owner
+router.post('/request-subscription', authorize('SALON_OWNER'), requestSubscription);
+
+// Approve or reject subscription request - Super Admin only
+router.post('/approve-subscription', authorize('SUPER_ADMIN'), approveSubscriptionRequest);
 
 // Get salon by ID
 router.get('/:id', getSalonById);
