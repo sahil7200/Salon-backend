@@ -1,4 +1,5 @@
 const Staff = require('../models/Staff');
+const Salon = require('../models/Salon');
 
 const createStaff = async (req, res, next) => {
   try {
@@ -9,6 +10,18 @@ const createStaff = async (req, res, next) => {
         error: 'VALIDATION_ERROR',
         message: 'Name and phone are required',
       });
+    }
+
+    // Check salon subscription plan staff limit
+    const salon = await Salon.findById(req.salonId).populate('currentPlan');
+    if (salon && salon.currentPlan) {
+      const currentStaffCount = await Staff.countDocuments({ salonId: req.salonId, isActive: true });
+      if (currentStaffCount >= salon.currentPlan.maxStaff) {
+        return res.status(403).json({
+          error: 'LIMIT_REACHED',
+          message: `Your current plan ('${salon.currentPlan.name}') allows a maximum of ${salon.currentPlan.maxStaff} staff members. Please upgrade your subscription to add more.`,
+        });
+      }
     }
 
     const staff = await Staff.create({

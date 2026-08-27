@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   getSalons,
   getSalonById,
+  createSalon,
   assignPlan,
   getSubscriptionHistory,
 } = require('../controllers/salonController');
@@ -14,6 +15,9 @@ router.use(auth);
 
 // List salons - all authenticated users can view (filtered by role in controller)
 router.get('/', getSalons);
+
+// Create salon - Super Admin only
+router.post('/', authorize('SUPER_ADMIN'), createSalon);
 
 // Get salon by ID
 router.get('/:id', getSalonById);

@@ -144,9 +144,75 @@ const getSubscriptionHistory = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     res.json(history);
+const createSalon = async (req, res, next) => {
+  try {
+    const { name, ownerName, ownerEmail, ownerPassword, address, phone, planId } = req.body;
+
+    if (!name || !ownerEmail || !ownerPassword) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Salon name, ownerEmail, and ownerPassword are required',
+      });
+    }
+
+    const User = require('../models/User');
+    let owner = await User.findOne({ email: ownerEmail.toLowerCase() });
+    if (!owner) {
+      owner = await User.create({
+        name: ownerName || name + ' Owner',
+        email: ownerEmail.toLowerCase(),
+        password: ownerPassword,
+        role: 'SALON_OWNER',
+      });
+    }
+
+    let selectedPlan = null;
+    if (planId) {
+      selectedPlan = await Plan.findById(planId);
+    }
+    if (!selectedPlan) {
+      selectedPlan = await Plan.findOne({ name: 'Basic' }) || await Plan.findOne({ isActive: true });
+    }
+
+    const now = new Date();
+    const durationDays = selectedPlan ? selectedPlan.durationInDays : 30;
+    const endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + durationDays);
+
+    const salon = await Salon.create({
+      name,
+      ownerId: owner._id,
+      address: address || '123 Main Street',
+      phone: phone || '+91-9876543210',
+      latitude: 19.0760,
+      longitude: 72.8777,
+      allowedRadius: 100,
+      openingTime: '09:00',
+      closingTime: '20:00',
+      currentPlan: selectedPlan ? selectedPlan._id : null,
+      subscriptionStartDate: now,
+      subscriptionEndDate: endDate,
+      subscriptionStatus: 'ACTIVE',
+    });
+
+    owner.salonId = salon._id;
+    await owner.save();
+
+    if (selectedPlan) {
+      await SubscriptionHistory.create({
+        salonId: salon._id,
+        planId: selectedPlan._id,
+        startDate: now,
+        endDate,
+        price: selectedPlan.price,
+        action: 'ASSIGN',
+      });
+    }
+
+    res.status(201).json(salon);
   } catch (error) {
     next(error);
   }
 };
 
-module.exports = { getSalons, getSalonById, assignPlan, getSubscriptionHistory };
+module.exports = { getSalons, getSalonById, createSalon, assignPlan, getSubscriptionHistory };

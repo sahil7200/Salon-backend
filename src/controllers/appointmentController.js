@@ -48,10 +48,24 @@ const createAppointment = async (req, res, next) => {
       });
     }
 
-    // Get salon for working hours config
-    const salon = await Salon.findById(salonId);
+    // Get salon for working hours config and plan limit check
+    const salon = await Salon.findById(salonId).populate('currentPlan');
     if (!salon) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Salon not found' });
+    }
+
+    // Check appointment count against subscription plan limit
+    if (salon.currentPlan) {
+      const activeAppointmentCount = await Appointment.countDocuments({
+        salonId,
+        status: { $in: ['PENDING', 'CONFIRMED'] },
+      });
+      if (activeAppointmentCount >= salon.currentPlan.maxAppointments) {
+        return res.status(403).json({
+          error: 'LIMIT_REACHED',
+          message: `Your current plan ('${salon.currentPlan.name}') allows a maximum of ${salon.currentPlan.maxAppointments} active appointments. Please upgrade your subscription to accept more bookings.`,
+        });
+      }
     }
 
     // 1. Validate working hours — appointment must fall fully inside 09:00–20:00
