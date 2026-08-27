@@ -144,6 +144,11 @@ const getSubscriptionHistory = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     res.json(history);
+  } catch (error) {
+    next(error);
+  }
+};
+
 const createSalon = async (req, res, next) => {
   try {
     const { name, ownerName, ownerEmail, ownerPassword, address, phone, planId } = req.body;

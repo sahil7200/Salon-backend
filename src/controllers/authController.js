@@ -40,6 +40,11 @@ const login = async (req, res, next) => {
         salonId: user.salonId,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const register = async (req, res, next) => {
   try {
     const { name, email, password, salonName, phone, address } = req.body;
