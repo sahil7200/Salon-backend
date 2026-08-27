@@ -290,10 +290,49 @@ const getSubscriptionHistory = async (req, res, next) => {
   }
 };
 
+const updateSalon = async (req, res, next) => {
+  try {
+    const { name, address, phone, latitude, longitude, allowedRadius, openingTime, closingTime } = sanitizeFields(req.body, [
+      'name', 'address', 'phone', 'latitude', 'longitude', 'allowedRadius', 'openingTime', 'closingTime',
+    ]);
+
+    const salon = await Salon.findById(req.params.id);
+    if (!salon) {
+      return res.status(404).json({ error: 'RESOURCE_NOT_FOUND', message: 'Salon not found' });
+    }
+
+    if (req.user.role !== 'SUPER_ADMIN' && salon._id.toString() !== req.salonId?.toString()) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Not authorized to update this salon' });
+    }
+
+    if (name) salon.name = name.trim();
+    if (address != null) salon.address = address.trim();
+    if (phone != null) salon.phone = phone.trim();
+    if (latitude != null && !isNaN(Number(latitude))) salon.latitude = Number(latitude);
+    if (longitude != null && !isNaN(Number(longitude))) salon.longitude = Number(longitude);
+    if (allowedRadius != null && !isNaN(Number(allowedRadius))) salon.allowedRadius = Number(allowedRadius);
+    if (openingTime) salon.openingTime = openingTime;
+    if (closingTime) salon.closingTime = closingTime;
+
+    await salon.save();
+
+    logAudit(req, 'SALON_UPDATED', 'Salon', salon._id, {
+      latitude: salon.latitude,
+      longitude: salon.longitude,
+      allowedRadius: salon.allowedRadius,
+    });
+
+    res.json(salon);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getSalons,
   getSalonById,
   createSalon,
+  updateSalon,
   assignPlan,
   updateSalonStatus,
   getSubscriptionHistory,

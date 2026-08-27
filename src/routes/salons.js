@@ -4,6 +4,7 @@ const {
   getSalons,
   getSalonById,
   createSalon,
+  updateSalon,
   assignPlan,
   updateSalonStatus,
   getSubscriptionHistory,
@@ -18,6 +19,9 @@ router.get('/', getSalons);
 
 // Create salon - Super Admin only
 router.post('/', authorize('SUPER_ADMIN'), createSalon);
+
+// Update salon details / coordinates - Super Admin or Salon Owner
+router.patch('/:id', updateSalon);
 
 // Get salon by ID
 router.get('/:id', getSalonById);
