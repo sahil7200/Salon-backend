@@ -1,9 +1,11 @@
 const User = require('../models/User');
 const { generateToken } = require('../utils/token');
+const { sanitizeFields } = require('../utils/validators');
+const { logAudit } = require('../utils/audit');
 
 const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = sanitizeFields(req.body, ['email', 'password']);
 
     if (!email || !password) {
       return res.status(400).json({
@@ -14,21 +16,34 @@ const login = async (req, res, next) => {
 
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
 
+    // Generic error message for both unknown email and wrong password (§79)
     if (!user || !(await user.comparePassword(password))) {
+      logAudit(req, 'LOGIN_FAILED', 'User', null, { email: email.toLowerCase() });
       return res.status(401).json({
         error: 'INVALID_CREDENTIALS',
         message: 'Invalid email or password',
       });
     }
 
-    if (!user.isActive) {
+    // Account status check (§5)
+    if (user.status === 'SUSPENDED') {
+      logAudit(req, 'LOGIN_BLOCKED_SUSPENDED', 'User', user._id);
+      return res.status(403).json({
+        error: 'ACCOUNT_SUSPENDED',
+        message: 'Your account has been suspended',
+      });
+    }
+
+    if (user.status === 'DEACTIVATED' || !user.isActive) {
+      logAudit(req, 'LOGIN_BLOCKED_DISABLED', 'User', user._id);
       return res.status(403).json({
         error: 'ACCOUNT_DISABLED',
-        message: 'Your account has been disabled',
+        message: 'Your account has been deactivated',
       });
     }
 
     const token = generateToken(user);
+    logAudit(req, 'LOGIN_SUCCESS', 'User', user._id);
 
     res.json({
       token,
@@ -38,6 +53,7 @@ const login = async (req, res, next) => {
         email: user.email,
         role: user.role,
         salonId: user.salonId,
+        status: user.status,
       },
     });
   } catch (error) {
@@ -45,9 +61,14 @@ const login = async (req, res, next) => {
   }
 };
 
+/**
+ * Self-service registration for Salon Owner + Salon trial (§55, §56).
+ */
 const register = async (req, res, next) => {
   try {
-    const { name, email, password, salonName, phone, address } = req.body;
+    const { name, email, password, salonName, phone, address } = sanitizeFields(req.body, [
+      'name', 'email', 'password', 'salonName', 'phone', 'address',
+    ]);
 
     if (!name || !email || !password || !salonName) {
       return res.status(400).json({
@@ -56,11 +77,13 @@ const register = async (req, res, next) => {
       });
     }
 
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(409).json({
         error: 'EMAIL_EXISTS',
-        message: 'A user with this email already exists',
+        message: 'A user with this email address already exists',
       });
     }
 
@@ -73,11 +96,13 @@ const register = async (req, res, next) => {
       defaultPlan = await Plan.findOne({ isActive: true });
     }
 
+    // Create Salon Owner user first
     const owner = await User.create({
-      name,
-      email: email.toLowerCase(),
+      name: name.trim(),
+      email: normalizedEmail,
       password,
       role: 'SALON_OWNER',
+      status: 'ACTIVE',
     });
 
     const now = new Date();
@@ -85,11 +110,12 @@ const register = async (req, res, next) => {
     const endDate = new Date(now);
     endDate.setDate(endDate.getDate() + durationDays);
 
+    // Create Salon with TRIAL status (§56)
     const salon = await Salon.create({
-      name: salonName,
+      name: salonName.trim(),
       ownerId: owner._id,
-      phone: phone || '+91-0000000000',
-      address: address || 'Default Salon Address',
+      phone: phone ? phone.trim() : '+91-0000000000',
+      address: address ? address.trim() : 'Default Salon Address',
       latitude: 19.0760,
       longitude: 72.8777,
       allowedRadius: 100,
@@ -98,7 +124,8 @@ const register = async (req, res, next) => {
       currentPlan: defaultPlan ? defaultPlan._id : null,
       subscriptionStartDate: now,
       subscriptionEndDate: endDate,
-      subscriptionStatus: 'ACTIVE',
+      subscriptionStatus: 'TRIAL',
+      status: 'ACTIVE',
     });
 
     owner.salonId = salon._id;
@@ -112,10 +139,13 @@ const register = async (req, res, next) => {
         endDate,
         price: defaultPlan.price,
         action: 'ASSIGN',
+        performedBy: owner._id,
       });
     }
 
     const token = generateToken(owner);
+
+    logAudit(req, 'USER_REGISTERED', 'User', owner._id, { salonId: salon._id, salonName: salon.name });
 
     res.status(201).json({
       token,
@@ -125,10 +155,12 @@ const register = async (req, res, next) => {
         email: owner.email,
         role: owner.role,
         salonId: owner.salonId,
+        status: owner.status,
       },
       salon: {
         id: salon._id,
         name: salon.name,
+        subscriptionStatus: salon.subscriptionStatus,
       },
     });
   } catch (error) {

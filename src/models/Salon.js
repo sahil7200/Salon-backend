@@ -19,6 +19,12 @@ const salonSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  // Operational status (§8)
+  status: {
+    type: String,
+    enum: ['ACTIVE', 'SUSPENDED', 'CLOSED'],
+    default: 'ACTIVE',
+  },
   // Geo-fencing configuration
   latitude: {
     type: Number,
@@ -32,6 +38,11 @@ const salonSchema = new mongoose.Schema({
     type: Number,
     default: 100, // meters
     required: true,
+  },
+  // Timezone for correct "today" logic (§62-63)
+  timezone: {
+    type: String,
+    default: 'Asia/Kolkata',
   },
   // Working hours config
   openingTime: {
@@ -51,13 +62,22 @@ const salonSchema = new mongoose.Schema({
   subscriptionEndDate: Date,
   subscriptionStatus: {
     type: String,
-    enum: ['ACTIVE', 'EXPIRED', 'NONE'],
+    enum: ['TRIAL', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'SUSPENDED', 'CANCELLED', 'NONE'],
     default: 'NONE',
   },
+  // Legacy compat
   isActive: {
     type: Boolean,
     default: true,
   },
 }, { timestamps: true });
+
+// Keep isActive in sync with status
+salonSchema.pre('save', function (next) {
+  if (this.isModified('status')) {
+    this.isActive = this.status === 'ACTIVE';
+  }
+  next();
+});
 
 module.exports = mongoose.model('Salon', salonSchema);

@@ -5,11 +5,11 @@ const {
   getSalonById,
   createSalon,
   assignPlan,
+  updateSalonStatus,
   getSubscriptionHistory,
 } = require('../controllers/salonController');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/rbac');
-const subscriptionGate = require('../middleware/subscriptionGate');
 
 router.use(auth);
 
@@ -24,6 +24,9 @@ router.get('/:id', getSalonById);
 
 // Assign/renew plan - Super Admin only
 router.post('/assign-plan', authorize('SUPER_ADMIN'), assignPlan);
+
+// Update salon operational status (ACTIVE/SUSPENDED/CLOSED) - Super Admin only (§8)
+router.patch('/:id/status', authorize('SUPER_ADMIN'), updateSalonStatus);
 
 // Subscription history - Super Admin sees all, salon users see their own
 router.get('/subscriptions/history', getSubscriptionHistory);

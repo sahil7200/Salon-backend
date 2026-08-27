@@ -11,6 +11,12 @@ const attendanceSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  // Lifecycle status (§41)
+  status: {
+    type: String,
+    enum: ['CHECKED_IN', 'CHECKED_OUT'],
+    default: 'CHECKED_IN',
+  },
   checkInTime: {
     type: Date,
     default: Date.now,
@@ -26,8 +32,16 @@ const attendanceSchema = new mongoose.Schema({
     type: Boolean,
     required: true,
   },
+  // Check-out fields (§41, §44)
+  checkOutTime: Date,
+  checkOutLocation: {
+    latitude: Number,
+    longitude: Number,
+  },
 }, { timestamps: true });
 
 attendanceSchema.index({ salonId: 1, staffUserId: 1, checkInTime: -1 });
+// Index for duplicate check-in queries (§43)
+attendanceSchema.index({ salonId: 1, staffUserId: 1, status: 1 });
 
 module.exports = mongoose.model('Attendance', attendanceSchema);

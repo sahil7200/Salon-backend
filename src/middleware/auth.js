@@ -1,6 +1,10 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+/**
+ * Authentication middleware (§4, §5).
+ * Validates JWT token and checks user operational state (ACTIVE/SUSPENDED/DEACTIVATED).
+ */
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -12,8 +16,17 @@ const auth = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId).select('+password');
 
-    if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid or expired token' });
+    if (!user) {
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'User not found or token invalid' });
+    }
+
+    // Check account status (§5)
+    if (user.status === 'SUSPENDED') {
+      return res.status(403).json({ error: 'ACCOUNT_SUSPENDED', message: 'Your account has been suspended' });
+    }
+
+    if (user.status === 'DEACTIVATED' || !user.isActive) {
+      return res.status(403).json({ error: 'ACCOUNT_DISABLED', message: 'Your account has been deactivated' });
     }
 
     req.user = user;

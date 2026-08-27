@@ -18,14 +18,28 @@ const staffSchema = new mongoose.Schema({
   },
   services: [{
     type: String,
-    enum: ['Haircut', 'Facial', 'Hair Color'],
   }],
+  // Lifecycle status (§15)
+  status: {
+    type: String,
+    enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'],
+    default: 'ACTIVE',
+  },
+  // Legacy compat
   isActive: {
     type: Boolean,
     default: true,
   },
 }, { timestamps: true });
 
+staffSchema.pre('save', function (next) {
+  if (this.isModified('status')) {
+    this.isActive = this.status === 'ACTIVE';
+  }
+  next();
+});
+
 staffSchema.index({ salonId: 1 });
+staffSchema.index({ salonId: 1, phone: 1 });
 
 module.exports = mongoose.model('Staff', staffSchema);

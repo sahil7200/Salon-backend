@@ -30,15 +30,26 @@ const userSchema = new mongoose.Schema({
     ref: 'Salon',
     required: false,
   },
+  status: {
+    type: String,
+    enum: ['ACTIVE', 'SUSPENDED', 'DEACTIVATED'],
+    default: 'ACTIVE',
+  },
+  // Legacy field kept for backward compatibility; new code should use status
   isActive: {
     type: Boolean,
     default: true,
   },
 }, { timestamps: true });
 
+// Keep isActive in sync with status
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
+  if (this.isModified('status')) {
+    this.isActive = this.status === 'ACTIVE';
+  }
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
   next();
 });
 

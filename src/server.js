@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const requestId = require('./middleware/requestId');
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +12,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
+app.use(requestId); // Attach unique requestId to every request (§82)
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -33,12 +35,22 @@ app.use((req, res) => {
   res.status(404).json({ error: 'NOT_FOUND', message: `Route ${req.originalUrl} not found` });
 });
 
-// Global error handler
+// Global error handler (§51 — never expose stack traces, internal paths, or DB details in production)
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({
-    error: 'INTERNAL_ERROR',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
+  const statusCode = err.statusCode || 500;
+  console.error(`[${req.requestId}] Error:`, err);
+
+  // Never expose internals in production
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    return res.status(statusCode).json({
+      error: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+
+  res.status(statusCode).json({
+    error: 'INTERNAL_SERVER_ERROR',
+    message: err.message,
   });
 });
 

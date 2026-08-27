@@ -11,6 +11,10 @@ const subscriptionHistorySchema = new mongoose.Schema({
     ref: 'Plan',
     required: true,
   },
+  previousPlanId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Plan',
+  },
   startDate: {
     type: Date,
     required: true,
@@ -25,9 +29,15 @@ const subscriptionHistorySchema = new mongoose.Schema({
   },
   action: {
     type: String,
-    enum: ['ASSIGN', 'RENEW', 'UPGRADE'],
+    enum: ['ASSIGN', 'RENEW', 'UPGRADE', 'DOWNGRADE', 'EXPIRE', 'SUSPEND', 'CANCEL'],
     required: true,
   },
+  performedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
 }, { timestamps: true });
+
+subscriptionHistorySchema.index({ salonId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('SubscriptionHistory', subscriptionHistorySchema);
