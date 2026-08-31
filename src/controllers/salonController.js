@@ -4,6 +4,7 @@ const SubscriptionHistory = require('../models/SubscriptionHistory');
 const User = require('../models/User');
 const { sanitizeFields } = require('../utils/validators');
 const { logAudit } = require('../utils/audit');
+const { sendUserCredentialsEmail } = require('../services/emailService');
 
 const getSalons = async (req, res, next) => {
   try {
@@ -74,6 +75,7 @@ const createSalon = async (req, res, next) => {
 
     const normalizedEmail = ownerEmail.trim().toLowerCase();
 
+    let isNewOwner = false;
     let owner = await User.findOne({ email: normalizedEmail });
     if (!owner) {
       owner = await User.create({
@@ -83,6 +85,7 @@ const createSalon = async (req, res, next) => {
         role: 'SALON_OWNER',
         status: 'ACTIVE',
       });
+      isNewOwner = true;
     }
 
     let selectedPlan = null;
@@ -131,6 +134,19 @@ const createSalon = async (req, res, next) => {
     }
 
     logAudit(req, 'SALON_CREATED', 'Salon', salon._id, { name: salon.name, ownerEmail: normalizedEmail });
+
+    // If a new owner was created with this salon, send credentials email
+    if (isNewOwner) {
+      sendUserCredentialsEmail({
+        name: owner.name,
+        email: owner.email,
+        password: ownerPassword,
+        role: 'SALON_OWNER',
+        salonName: salon.name,
+      }).catch((emailErr) => {
+        console.error('[createSalon] Error sending owner credentials email:', emailErr.message);
+      });
+    }
 
     res.status(201).json(salon);
   } catch (error) {

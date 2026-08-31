@@ -1,6 +1,8 @@
 const User = require('../models/User');
+const Salon = require('../models/Salon');
 const { sanitizeFields } = require('../utils/validators');
 const { logAudit } = require('../utils/audit');
+const { sendUserCredentialsEmail } = require('../services/emailService');
 
 const getUsers = async (req, res, next) => {
   try {
@@ -97,6 +99,26 @@ const createUser = async (req, res, next) => {
     });
 
     logAudit(req, 'USER_CREATED', 'User', user._id, { email: user.email, role: user.role, salonId: targetSalonId });
+
+    // Send credentials email asynchronously
+    (async () => {
+      try {
+        let salonName = null;
+        if (targetSalonId) {
+          const salon = await Salon.findById(targetSalonId);
+          if (salon) salonName = salon.name;
+        }
+        await sendUserCredentialsEmail({
+          name: user.name,
+          email: user.email,
+          password,
+          role: user.role,
+          salonName,
+        });
+      } catch (emailErr) {
+        console.error('[createUser] Error sending credentials email:', emailErr.message);
+      }
+    })();
 
     res.status(201).json({
       id: user._id,

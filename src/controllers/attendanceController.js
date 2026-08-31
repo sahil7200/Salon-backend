@@ -187,4 +187,37 @@ const getTodayAttendance = async (req, res, next) => {
   }
 };
 
-module.exports = { checkIn, checkOut, getTodayAttendance };
+/**
+ * Get all staff attendance records for the salon (Salon Owner / Receptionist view).
+ */
+const getSalonAttendanceList = async (req, res, next) => {
+  try {
+    const { date, limit = 50 } = req.query;
+    let query = { salonId: req.salonId };
+
+    if (date) {
+      const start = new Date(date);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      query.checkInTime = { $gte: start, $lt: end };
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      query.checkInTime = { $gte: today, $lt: tomorrow };
+    }
+
+    const records = await Attendance.find(query)
+      .populate('staffUserId', 'name email role')
+      .sort({ checkInTime: -1 })
+      .limit(parseInt(limit) || 50);
+
+    res.json(records);
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { checkIn, checkOut, getTodayAttendance, getSalonAttendanceList };

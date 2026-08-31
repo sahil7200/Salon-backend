@@ -2,6 +2,7 @@ const User = require('../models/User');
 const { generateToken } = require('../utils/token');
 const { sanitizeFields } = require('../utils/validators');
 const { logAudit } = require('../utils/audit');
+const { sendUserCredentialsEmail } = require('../services/emailService');
 
 const login = async (req, res, next) => {
   try {
@@ -146,6 +147,17 @@ const register = async (req, res, next) => {
     const token = generateToken(owner);
 
     logAudit(req, 'USER_REGISTERED', 'User', owner._id, { salonId: salon._id, salonName: salon.name });
+
+    // Send credentials email asynchronously
+    sendUserCredentialsEmail({
+      name: owner.name,
+      email: owner.email,
+      password,
+      role: owner.role,
+      salonName: salon.name,
+    }).catch((emailErr) => {
+      console.error('[register] Error sending welcome credentials email:', emailErr.message);
+    });
 
     res.status(201).json({
       token,
